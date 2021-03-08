@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: bil-core-processor
+  liquibase:
+    enabled: false
+  cloud:
+    stream:
+      function:
+        definition: create;delete;pending;failed;processing;complete;cancelled
+      bindings:
+        create-in-0:
+          destination: create-process
+        delete-in-0:
+          destination: delete-process
+        pending-out-0:
+          destination: process-pending
+        failed-out-0:
+          destination: process-failed
+        processing-out-0:
+          destination: process-processing
+        complete-out-0:
+          destination: process-complete
+        cancelled-out-0:
+          destination: process-cancelled
+    config:
+      enabled: false
+#  rabbitmq:
+#    host: ${embedded.rabbitmq.host}
+#    port: ${embedded.rabbitmq.port}
+#    username: ${embedded.rabbitmq.user}
+#    password: ${embedded.rabbitmq.password}
+  jackson:
+    default-property-inclusion: non_null
+    parser:
+      ignore_undefined: true
+logging:
+  level:
+    ssm.demo: trace
+management:
+  endpoint:
+    health:
+      show-details: always
+  endpoints:
+    web:
+      exposure:
+        include: '*'
+server:
+  port: 5003
+  shutdown: graceful
+eureka:
+  client:
+    enabled: false
