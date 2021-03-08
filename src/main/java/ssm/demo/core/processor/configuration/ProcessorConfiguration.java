@@ -1,5 +1,9 @@
 package ssm.demo.core.processor.configuration;
 
+import org.redisson.Redisson;
+import org.redisson.api.RedissonClient;
+import org.redisson.config.Config;
+import org.springframework.beans.factory.annotation.Value;
 import ssm.demo.core.processor.dto.process.ProcessEvent;
 import ssm.demo.core.processor.dto.process.ProcessState;
 import ssm.demo.core.processor.persistence.ProcessPersistenceInterceptor;
@@ -18,6 +22,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.statemachine.config.StateMachineFactory;
 import org.springframework.statemachine.service.DefaultStateMachineService;
 import org.springframework.statemachine.service.StateMachineService;
+import ssm.demo.core.processor.service.ClusterStateMachineService;
 
 import static org.springframework.hateoas.config.EnableHypermediaSupport.HypermediaType.HAL;
 import static org.springframework.hateoas.config.EnableHypermediaSupport.HypermediaType.HAL_FORMS;
@@ -50,12 +55,24 @@ public class ProcessorConfiguration {
 	 * @return the state machine service
 	 */
 	@Bean
-	public StateMachineService<ProcessState, ProcessEvent> stateMachineService(@SuppressWarnings("SpringJavaInjectionPointsAutowiringInspection") StateMachineFactory<ProcessState, ProcessEvent> stateMachineFactory,
-																			   ProcessPersistenceInterceptor processPersistenceInterceptor
+	public ClusterStateMachineService<ProcessState, ProcessEvent> stateMachineService(@SuppressWarnings("SpringJavaInjectionPointsAutowiringInspection") StateMachineFactory<ProcessState, ProcessEvent> stateMachineFactory,
+																			   ProcessPersistenceInterceptor processPersistenceInterceptor,
+																			   RedissonClient Redissonclient
 	                                                                          ) {
 
-		return new DefaultStateMachineService<>(stateMachineFactory, processPersistenceInterceptor);
+		return new ClusterStateMachineService<>(stateMachineFactory, processPersistenceInterceptor, Redissonclient);
 
+	}
+
+	@Bean
+	public RedissonClient RedissonLock(@Value("${redisson.host}") String host,
+									   @Value("${redisson.port}") String port) {
+		Config config = new Config();
+		config.useSingleServer()
+				.setAddress("redis://"+host+":"+port);        // use "rediss://" for SSL connection
+		RedissonClient redisson = Redisson.create(config);
+
+		return redisson;
 	}
 
 }

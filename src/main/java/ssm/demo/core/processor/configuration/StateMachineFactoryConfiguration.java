@@ -1,9 +1,12 @@
 package ssm.demo.core.processor.configuration;
 
+import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Value;
 import ssm.demo.core.processor.dto.process.ProcessEvent;
 import ssm.demo.core.processor.dto.process.ProcessState;
 import ssm.demo.core.processor.engine.ProcessEngine;
 import ssm.demo.core.processor.persistence.ProcessPersistenceInterceptor;
+import ssm.demo.core.processor.service.RedisLockService;
 import ssm.demo.core.processor.web.event.ProcessStateChangeEvent;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +38,11 @@ public class StateMachineFactoryConfiguration extends StateMachineConfigurerAdap
 
 	private final ProcessPersistenceInterceptor processPersistenceInterceptor;
 
+	private final RedissonClient redisson;
+
+	@Value("${spring.application.name}")
+	private String appName;
+
 	@Override
 	public void configure(StateMachineConfigurationConfigurer<ProcessState, ProcessEvent> config) throws Exception {
 
@@ -62,6 +70,11 @@ public class StateMachineFactoryConfiguration extends StateMachineConfigurerAdap
 		return context -> {
 			this.getApplicationEventPublisher()
 			    .publishEvent(new ProcessStateChangeEvent(context.getStateMachine().getId(), target));
+
+			//distributed lock
+			String lockId = RedisLockService.getLockId(appName, context.getStateMachine().getId());
+			RedisLockService.lock(redisson, lockId , String.valueOf(target));
+
 			try {
 				chain.execute(context);
 			} catch (Throwable e) {
@@ -69,6 +82,9 @@ public class StateMachineFactoryConfiguration extends StateMachineConfigurerAdap
 				context.getExtendedState().getVariables().put(THROWABLE_KEY, e.getClass().getName());
 			} finally {
 				this.getProcessPersistenceInterceptor().persist(context.getStateMachine().getState(), context.getStateMachine());
+
+				//distributed unlock
+				RedisLockService.unlock(redisson, lockId, String.valueOf(target));
 			}
 		};
 

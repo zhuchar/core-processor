@@ -9,14 +9,18 @@ import org.springframework.messaging.Message;
 import org.springframework.statemachine.StateMachine;
 import org.springframework.statemachine.service.StateMachineService;
 import reactor.util.annotation.Nullable;
-import ssm.demo.core.processor.engine.ProcessEngine;
 
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
+
+import static ssm.demo.core.processor.engine.ProcessEngine.INITIAL_DATA_KEY;
+import static ssm.demo.core.processor.engine.ProcessEngine.PROCESS_DATA_KEY;
 
 public interface ProcessService {
 
@@ -32,7 +36,8 @@ public interface ProcessService {
 			return false;
 		}
 
-		return this.cancel(this.getStateMachineService().acquireStateMachine(machineId));
+		return lockWrapper(() -> this.cancel(this.getStateMachineService().acquireStateMachine(machineId)),
+				machineId);
 
 	}
 
@@ -55,7 +60,7 @@ public interface ProcessService {
 
 	}
 
-	StateMachineService<ProcessState, ProcessEvent> getStateMachineService();
+	ClusterStateMachineService<ProcessState, ProcessEvent> getStateMachineService();
 
 	/**
 	 * Retrieves a state machine with a specific machine Id
@@ -69,7 +74,8 @@ public interface ProcessService {
 			return Optional.empty();
 		}
 
-		return Optional.ofNullable(this.getStateMachineService().acquireStateMachine(machineId));
+		return lockWrapper(() -> Optional.ofNullable(this.getStateMachineService().acquireStateMachine(machineId)),
+				machineId);
 
 	}
 
@@ -82,16 +88,22 @@ public interface ProcessService {
 	 * @return the variable within the extended state of the state machine
 	 */
 	default <PAYLOAD_TYPE> Optional<PAYLOAD_TYPE> getVariable(String machineId,
-	                                                          String variableName) {
+															  String variableName) {
 
 		if (!this.getRepository().existsById(machineId)) {
 			return Optional.empty();
 		}
-		final Map<Object, Object> variables = this.getStateMachineService().acquireStateMachine(machineId, false).getExtendedState().getVariables();
-		if (null == variables.get(variableName)) {
-			return Optional.empty();
-		}
-		return Optional.of(CastUtils.cast(variables.get(variableName)));
+
+		return lockWrapper(() -> {
+					final Map<Object, Object> variables = this.getStateMachineService().acquireStateMachine(machineId, false).getExtendedState().getVariables();
+					if (null == variables.get(variableName)) {
+						return Optional.empty();
+					}
+					return Optional.of(CastUtils.cast(variables.get(variableName)));
+				},
+				machineId);
+
+
 
 	}
 
@@ -106,13 +118,15 @@ public interface ProcessService {
 		if (!this.getRepository().existsById(machineId)) {
 			return Collections.emptySet();
 		}
-		return this.getStateMachineService().acquireStateMachine(machineId, false)
-		           .getExtendedState()
-		           .getVariables()
-		           .keySet()
-		           .stream()
-		           .map(Object::toString)
-		           .collect(Collectors.toSet());
+
+		return lockWrapper(() -> this.getStateMachineService().acquireStateMachine(machineId, false)
+						.getExtendedState()
+						.getVariables()
+						.keySet()
+						.stream()
+						.map(Object::toString)
+						.collect(Collectors.toSet()),
+				machineId);
 	}
 
 
@@ -127,7 +141,7 @@ public interface ProcessService {
 
 		final StateMachine<ProcessState, ProcessEvent> stateMachine = this.getStateMachineService().acquireStateMachine(UUID.randomUUID().toString(), false);
 		if (null != initialData) {
-			stateMachine.getExtendedState().getVariables().put(ProcessEngine.INITIAL_DATA_KEY, initialData);
+			stateMachine.getExtendedState().getVariables().put(INITIAL_DATA_KEY, initialData);
 
 		}
 		stateMachine.start();
@@ -145,13 +159,14 @@ public interface ProcessService {
 	 * @return the Id of the process
 	 */
 	default <PAYLOAD_TYPE> Optional<String> process(String machineId,
-	                                                @Nullable PAYLOAD_TYPE payload) {
+													@Nullable PAYLOAD_TYPE payload) {
 
 		if (!this.getRepository().existsById(machineId)) {
 			return Optional.empty();
 		}
-		return this.process(this.getStateMachineService().acquireStateMachine(machineId), payload);
 
+		return lockWrapper(() -> this.process(this.getStateMachineService().acquireStateMachine(machineId), payload),
+				machineId);
 	}
 
 	/**
@@ -164,10 +179,10 @@ public interface ProcessService {
 	 * @return the Id of the process
 	 */
 	default <PAYLOAD_TYPE> Optional<String> process(StateMachine<ProcessState, ProcessEvent> stateMachine,
-	                                                @Nullable PAYLOAD_TYPE payload) {
+													@Nullable PAYLOAD_TYPE payload) {
 
 		final MessageBuilder<ProcessEvent> messageBuilder = MessageBuilder.withPayload(ProcessEvent.PROCESS);
-		Optional.ofNullable(payload).ifPresent(safePayload -> messageBuilder.setHeader(ProcessEngine.PROCESS_DATA_KEY, payload));
+		Optional.ofNullable(payload).ifPresent(safePayload -> messageBuilder.setHeader(PROCESS_DATA_KEY, payload));
 		final Message<ProcessEvent> processEventMessage = messageBuilder.build();
 
 		if (stateMachine.sendEvent(processEventMessage)) {
@@ -202,8 +217,20 @@ public interface ProcessService {
 			return Optional.empty();
 		}
 
-		return Optional.ofNullable(this.getStateMachineService().acquireStateMachine(machineId, false).getState().getId());
+		return lockWrapper(() -> Optional.ofNullable(this.getStateMachineService().acquireStateMachine(machineId, false).getState().getId()),
+				machineId);
 
 	}
 
+	private <T> T lockWrapper(Supplier<T> supplier, String machineId) {
+		String callMethodName = Thread.currentThread().getStackTrace()[2].getMethodName();
+
+		this.getStateMachineService().lock(machineId, callMethodName);
+
+		T result = supplier.get();
+
+		this.getStateMachineService().unlock(machineId, callMethodName);
+
+		return result;
+	}
 }

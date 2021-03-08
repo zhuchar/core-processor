@@ -8,6 +8,7 @@ import ssm.demo.core.processor.dto.process.ProcessEvent;
 import ssm.demo.core.processor.dto.process.ProcessState;
 import ssm.demo.core.processor.engine.ProcessEngine;
 import ssm.demo.core.processor.persistence.ProcessRepository;
+import ssm.demo.core.processor.service.ClusterStateMachineService;
 import ssm.demo.core.processor.service.ProcessService;
 
 @EnableBilProcessor
@@ -23,7 +24,7 @@ public class ProcessorConfigurationStub {
 
 	@Bean
 	public ProcessService processService(ProcessRepository processRepository,
-										 StateMachineService<ProcessState, ProcessEvent> stateMachineService) {
+										 ClusterStateMachineService<ProcessState, ProcessEvent> stateMachineService) {
 
 		return new ProcessService() {
 
@@ -34,7 +35,7 @@ public class ProcessorConfigurationStub {
 			}
 
 			@Override
-			public StateMachineService<ProcessState, ProcessEvent> getStateMachineService() {
+			public ClusterStateMachineService<ProcessState, ProcessEvent> getStateMachineService() {
 
 				return stateMachineService;
 			}

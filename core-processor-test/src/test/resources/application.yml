@@ -50,3 +50,6 @@ server:
 eureka:
   client:
     enabled: false
+redisson:
+  host: localhost
+  port: 6379
